@@ -4,7 +4,7 @@ from telegram.ext import (Updater, CommandHandler, MessageHandler, Filters, Rege
 from os.path import join, exists
 from os import makedirs
 import logging
-from config import TOKEN
+from config import TOKEN, keyboard_add_sentence, keyboard_create_lesson
 
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -17,13 +17,15 @@ EN_SOUND, GET_RU_TEXT, RU_SOUND, FROM_FILE, GET_SOUND = range(4,9)
 
 def error(bot, update, error):
     """Log Errors caused by Updates."""
+    update.message.reply_text(
+        'Invalid input'
+    )
     logger.warning('Update "%s" caused error "%s"', update, error)
 
 
 def start(bot, update, user_data):
-    keyboard = [['Create lesson']]
     markup = ReplyKeyboardMarkup(
-        keyboard,
+        keyboard_create_lesson,
         one_time_keyboard=True,
         resize_keyboard=True
     )
@@ -44,11 +46,8 @@ def ask_lesson_name(bot, update):
 
 
 def get_lesson_name(bot, update, user_data):
-    keyboard = [['Add Sentence'],
-                ['From file'],
-                ['Done']]
     markup = ReplyKeyboardMarkup(
-        keyboard,
+        keyboard_add_sentence,
         one_time_keyboard=True,
         resize_keyboard=True
     )
@@ -66,6 +65,7 @@ def get_lesson_name(bot, update, user_data):
     )
     return ADD_SENTENCE
 
+
 def ask_en_text(bot, update):
     update.message.reply_text(
         'Write the english text:'
@@ -77,7 +77,7 @@ def get_en_text(bot, update, user_data):
     en_text = update.message.text
     user_data['en_text'] = en_text
     update.message.reply_text(
-        'Make english sound'
+        'Make english sound:'
     )
     return EN_SOUND
 
@@ -111,17 +111,14 @@ def get_ru_text(bot, update, user_data):
     ru_text = update.message.text
     user_data['ru_text'] = ru_text
     update.message.reply_text(
-        'Make ru sound'
+        'Make ru sound:'
     )
     return RU_SOUND
 
 
 def get_ru_sound(bot, update, user_data):
-    keyboard = [['Add Sentence'],
-                ['From file'],
-                ['Done']]
     markup = ReplyKeyboardMarkup(
-        keyboard,
+        keyboard_add_sentence,
         one_time_keyboard=True,
         resize_keyboard=True
     )
@@ -142,6 +139,7 @@ def get_ru_sound(bot, update, user_data):
             user_data['en_text'],
             'mp3'
         ))
+    user_data['sentence_id'] += 1
     ru_sound.download(ru_sound_filename)
     update.message.reply_text(
         'Add the sentence',
@@ -169,7 +167,7 @@ def get_sentence_from_file(bot, update, user_data):
         sentences = input_file.read().splitlines()
     user_data['sentences'] = sentences
     update.message.reply_text(
-        'make sound: {} '.format(
+        'Make sound: {} '.format(
             user_data['sentences'][0]
         )
     )
@@ -186,7 +184,7 @@ def get_sound(bot, update, user_data):
     sound_path = join(
         'data',
         user_data['lesson_name'],
-        user_data['language']#'EN'
+        user_data['language']
     )
 
     if not exists(sound_path):
@@ -201,11 +199,8 @@ def get_sound(bot, update, user_data):
     print(en_sound_filename)
     sound.download(en_sound_filename)
     if not user_data['sentences']:
-        keyboard = [['Add Sentence'],
-                    ['From file'],
-                    ['Done']]
         markup = ReplyKeyboardMarkup(
-            keyboard,
+            keyboard_add_sentence,
             one_time_keyboard=True,
             resize_keyboard=True
         )
@@ -220,10 +215,10 @@ def get_sound(bot, update, user_data):
         )
     )
 
-
     if (user_data['language'] == 'EN'):
         user_data['language'] = 'RU'
     else:
+        user_data['sentence_id'] += 1
         user_data['language'] = 'EN'
 
     user_data['text'] = user_data['sentences'][0]
@@ -231,8 +226,14 @@ def get_sound(bot, update, user_data):
     del user_data['sentences'][0]
     return GET_SOUND
 
-def done_function(bot, update):
-    pass
+
+def done(bot, update, user_data):
+    update.message.reply_text(
+        'Lesson {} created, {} sentendes added'.format(
+            user_data['lesson_name'],
+            user_data['sentence_id']
+        ))
+    return ConversationHandler.END
 
 
 def main():
@@ -240,6 +241,7 @@ def main():
     dp = updater.dispatcher
 
     conv_handler = ConversationHandler(
+
         entry_points=[CommandHandler('start', start, pass_user_data=True)],
 
         states={
@@ -258,17 +260,20 @@ def main():
                            RegexHandler('^From file$',
                                         ask_sentence_from_file,
                                         ),
-                           RegexHandler('^Done',
-                                        done_function,
+                           RegexHandler('^Done$',
+                                        done,
+                                        pass_user_data=True
                                         )
                            ],
             GET_SOUND: [MessageHandler(Filters.voice,
                                        get_sound,
-                                       pass_user_data=True)],
+                                       pass_user_data=True)
+                        ],
             GET_EN_TEXT: [MessageHandler(Filters.text,
                                          get_en_text,
                                          pass_user_data=True
-                                         )],
+                                         )
+                          ],
             EN_SOUND: [MessageHandler(Filters.voice,
                                       get_en_sound,
                                       pass_user_data=True
@@ -276,16 +281,20 @@ def main():
             GET_RU_TEXT: [MessageHandler(Filters.text,
                                          get_ru_text,
                                          pass_user_data=True
-                                         )],
+                                         )
+                          ],
             RU_SOUND: [MessageHandler(Filters.voice,
                                      get_ru_sound,
                                       pass_user_data=True
-                                     )],
+                                     )
+                       ],
             FROM_FILE: [MessageHandler(Filters.document,
                                        get_sentence_from_file,
-                                       pass_user_data=True)]
+                                       pass_user_data=True)
+                        ]
         },
-        fallbacks=[]
+
+        fallbacks=[RegexHandler('^Done$', done, pass_user_data=True)]
 
     )
 
